@@ -6,7 +6,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local TeleportService = game:GetService("TeleportService")
 local TweenService = game:GetService("TweenService")
-local SoundService = game:GetService("SoundService")
 
 local Config = getgenv().Config or {}
 local Team = Config.Team or "Pirates"
@@ -27,7 +26,6 @@ pcall(function()
 end)
 
 if FPSBOOST then
-    SoundService.Volume = 0
     settings().Rendering.QualityLevel = Enum.QualityLevel.Level02
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Decal") or obj:IsA("Texture") then
