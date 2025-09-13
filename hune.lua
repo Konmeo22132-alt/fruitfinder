@@ -1,4 +1,4 @@
--- main.lua (SAFE FPS / safe operations, config must be provided outside via getgenv().Config)
+-- main.lua (SAFE version) - Config MUST be set outside (getgenv().Config = {...})
 local Config = getgenv().Config or {}
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
@@ -14,9 +14,12 @@ local RunService = game:GetService("RunService")
 
 local TEAM = Config.Team or "Pirates"
 local FPSBOOST = Config.FPSBOOST or false
+local FPS_MINIMAL = (Config.FPS_MINIMAL == nil) and true or Config.FPS_MINIMAL
 local FRUITS = Config.Fruits or {}
 local HOP_OLD = Config.HopOldServer or false
-local TWEENSPEED = 350
+local TWEENSPEED = Config.TweenSpeed or 350
+local DEBUG = Config.Debug or false
+local USE_RESPAWN = (Config.UseRespawn == nil) and true or Config.UseRespawn
 
 local totalFruit = 0
 local hopping = false
@@ -24,7 +27,6 @@ local hoppingDots = ""
 local flying = false
 local lastRespawn = 0
 
--- safe helpers
 local function safeCall(fn, ...)
     local ok, res = pcall(fn, ...)
     return ok, res
@@ -49,54 +51,48 @@ local function isUnsafePath(obj)
     return false
 end
 
--- auto team (safe)
+-- Auto-select team (safe)
 safeCall(function()
-    if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+    if (TEAM == "Pirates" or TEAM == "Marines")
+        and ReplicatedStorage:FindFirstChild("Remotes")
+        and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
         safeCall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
     end
 end)
 
--- safer FPS boost (do not destroy Texture/Decal; only hide or disable where safe)
+-- Safer FPS boost: only disable emitters and hide decal/texture (no destructive changes)
 if FPSBOOST then
     safeCall(function() SoundService.Volume = 0 end)
     safeCall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level02 end)
-
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        -- skip player models or unsafe paths
-        if isDescendantOfPlayer(obj) then
-            -- skip player's character objects
-        else
-            local okName = true
-            if type(obj.Name) == "string" and tostring(obj.Name):sub(1,1) == "_" then okName = false end
-            if not okName then continue end
+    if FPS_MINIMAL then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if isDescendantOfPlayer(obj) then continue end
             if isUnsafePath(obj) then continue end
-
             if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
                 pcall(function() obj.Enabled = false end)
+                if DEBUG then warn("[FPS] Disabled emitter:", obj:GetFullName()) end
             elseif obj:IsA("Decal") then
                 pcall(function() if obj.Transparency ~= nil then obj.Transparency = 1 end end)
+                if DEBUG then warn("[FPS] Hid decal:", obj:GetFullName()) end
             elseif obj:IsA("Texture") then
                 pcall(function() if obj.Transparency ~= nil then obj.Transparency = 1 end end)
-            elseif obj:IsA("MeshPart") then
-                pcall(function()
-                    obj.Material = Enum.Material.SmoothPlastic
-                    if obj:FindFirstChild("TextureID") ~= nil then
-                        -- many MeshPart use TextureID property directly; set safely
-                        pcall(function() obj.TextureID = "" end)
-                    end
-                    obj.Reflectance = 0
-                end)
-            elseif obj:IsA("BasePart") then
-                pcall(function()
-                    obj.Material = Enum.Material.SmoothPlastic
-                    obj.Reflectance = 0
-                end)
+                if DEBUG then warn("[FPS] Hid texture:", obj:GetFullName()) end
+            end
+        end
+    else
+        -- Still conservative: don't modify MeshPart/BasePart properties to avoid breaking game scripts
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if isDescendantOfPlayer(obj) then continue end
+            if isUnsafePath(obj) then continue end
+            if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                pcall(function() obj.Enabled = false end)
+                if DEBUG then warn("[FPS] Disabled emitter:", obj:GetFullName()) end
             end
         end
     end
 end
 
--- notification
+-- Notify load
 safeCall(function()
     StarterGui:SetCore("SendNotification", {Title="HuneIPA - Fruit Finder", Text="Load successfully", Duration=4})
 end)
@@ -142,27 +138,27 @@ spawn(function()
     end
 end)
 
--- parse prefix from "Name-Name"
+-- parse prefix of "Name-Name"
 local function serverNameToPrefix(name)
     if type(name) ~= "string" then return name end
     local parts = string.split(name, "-")
     return parts[1] or name
 end
 
--- find fruits: prefer ones from FRUITS; also accept unknown models that contain "fruit"
+-- find fruits: prefer FRUITS, but also accept unknown models with "fruit" in name
 local function findFruitsInWorkspace()
     local found = {}
-    -- iterate workspace children first (lighter)
+    -- iterate children (lighter than full GetDescendants loop)
     for _, child in ipairs(workspace:GetChildren()) do
-        -- skip engine/world origin & effect containers & enemies
-        local cf = tostring(child.Name):lower()
-        if cf:sub(1,1) == "_" then continue end
-        if cf:find("enemies") or cf:find("effectcontainer") then continue end
+        -- skip likely engine/world containers
+        local low = tostring(child.Name):lower()
+        if low:sub(1,1) == "_" then continue end
+        if low:find("enemies") or low:find("effectcontainer") then continue end
 
         for _, obj in ipairs(child:GetDescendants()) do
             if (obj:IsA("Model") or obj:IsA("Tool")) and obj:FindFirstChild("Handle") then
                 if isDescendantOfPlayer(obj) then
-                    -- skip
+                    -- skip player's models
                 else
                     local matched = false
                     for _, serverName in ipairs(FRUITS) do
@@ -182,13 +178,15 @@ local function findFruitsInWorkspace()
     return found
 end
 
--- move to handle safely
+-- safe move to handle (teleport if close, tween if far)
 local function safeTweenToTarget(handleCFrame)
     if not Player or not Player.Character then return end
     local hrp = Player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    local pos = (typeof(handleCFrame) == "CFrame" and handleCFrame.Position) or (typeof(handleCFrame) == "Vector3" and handleCFrame) 
-    if not pos then return end
+    local pos = nil
+    if typeof(handleCFrame) == "CFrame" then pos = handleCFrame.Position
+    elseif typeof(handleCFrame) == "Vector3" then pos = handleCFrame
+    else return end
     local target = CFrame.new(pos + Vector3.new(0,3,0))
     local distance = (hrp.Position - pos).Magnitude
     if distance <= 300 then
@@ -204,7 +202,7 @@ local function safeTweenToTarget(handleCFrame)
     end
 end
 
--- try store fruits that match FRUITS list
+-- try to store fruits that match FRUITS list
 local function storeAllFruitOnce()
     local backpack = Player and Player:FindFirstChild("Backpack")
     local char = Player and Player.Character
@@ -226,21 +224,24 @@ local function storeAllFruitOnce()
     end
 end
 
--- safe respawn with cooldown
+-- safe respawn (cooldown)
 local function safeRespawn()
+    if not USE_RESPAWN then return end
     if tick() - lastRespawn < 4 then return end
     lastRespawn = tick()
     pcall(function()
         if Player and Player.LoadCharacter then
             Player:LoadCharacter()
-            -- wait for HRP briefly
             local timeout = tick() + 8
             while tick() < timeout do
                 if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then break end
                 task.wait(0.1)
             end
-        elseif Player.Character and Player.Character:FindFirstChild("Humanoid") then
-            pcall(function() Player.Character:BreakJoints() end)
+            if DEBUG then warn("[Respawn] Character reloaded") end
+        else
+            if Player.Character and Player.Character:FindFirstChild("Humanoid") then
+                pcall(function() Player.Character:BreakJoints() end)
+            end
         end
     end)
 end
@@ -261,7 +262,7 @@ local function startFlying()
 end
 local function stopFlying() flying = false end
 
--- hop server (prefer old & low population if HOP_OLD true)
+-- Hop server (prefer old & low population if enabled)
 local function HopServer()
     hopping = true
     UpdateUI("Hopping")
@@ -284,17 +285,17 @@ local function HopServer()
     pcall(function() TeleportService:Teleport(game.PlaceId, Player) end)
 end
 
--- Main loop (lighter frequency)
+-- Main loop (1s loop to reduce noise)
 task.spawn(function()
     task.wait(5)
-    while task.wait(1.0) do  -- slower to reduce stress on client
+    while task.wait(1.0) do
         if not Player or not Player.Character then continue end
         local fruits = findFruitsInWorkspace()
         if #fruits > 0 then
             table.sort(fruits, function(a,b)
-                local ah = a:FindFirstChild("Handle") local bh = b:FindFirstChild("Handle")
+                local ah, bh = a:FindFirstChild("Handle"), b:FindFirstChild("Handle")
                 if not ah or not bh then return false end
-                local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+                local hrp = Player.Character:FindFirstChild("HumanoidRootPart")
                 if not hrp then return false end
                 return (hrp.Position - ah.Position).Magnitude < (hrp.Position - bh.Position).Magnitude
             end)
@@ -317,8 +318,7 @@ task.spawn(function()
             end
             stopFlying()
             totalFruit = totalFruit + 1
-            pcall(function() StarterGui:SetCore("SendNotification", {Title = "HuneIPA - Fruit Finder", Text = "Find {"..tostring(totalFruit).." } fruit on this server", Duration = 4}) end)
-            -- if still multiple fruits -> safe respawn and continue
+            pcall(function() StarterGui:SetCore("SendNotification", {Title = "HuneIPA - Fruit Finder", Text = "Find {"..tostring(totalFruit).."} fruit on this server", Duration = 4}) end)
             local remaining = findFruitsInWorkspace()
             if #remaining > 1 then
                 safeRespawn()
