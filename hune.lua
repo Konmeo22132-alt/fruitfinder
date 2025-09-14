@@ -10,7 +10,6 @@ local CoreGui = game:GetService("CoreGui")
 local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local TEAM = Config.Team or "Pirates"
 local FPSBOOST = Config.FPSBOOST or false
@@ -36,6 +35,12 @@ end
 
 local function getPlayer()
     return Players.LocalPlayer
+end
+
+local function notify(title, text, duration)
+    safePcall(function()
+        StarterGui:SetCore("SendNotification", {Title = title or "Fruit Finder", Text = text or "", Duration = duration or 4})
+    end)
 end
 
 local function normalizeString(s)
@@ -74,67 +79,45 @@ end
 
 local FruitLookup = buildLookupFromConfig()
 
--- ========== UI ==========
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "HuneIPA_FruitFinder_UI_v1"
+screenGui.Name = "FruitFinderUI"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = CoreGui
 
--- Container Frame với viền xanh lá
-local container = Instance.new("Frame")
-container.Name = "FruitFinderUI"
-container.Size = UDim2.new(0, 400, 0, 200)
-container.Position = UDim2.new(0.5, -200, 0.4, 0)
-container.BackgroundTransparency = 1
-container.BorderSizePixel = 2
-container.BorderColor3 = Color3.fromRGB(0, 255, 0)
-container.Parent = screenGui
-
--- Background bên trong, mờ 25%
-local bg = Instance.new("Frame")
-bg.Size = UDim2.new(1, -4, 1, -4)
-bg.Position = UDim2.new(0, 2, 0, 2)
-bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-bg.BackgroundTransparency = 0.25
-bg.BorderSizePixel = 0
-bg.Parent = container
-
--- Label text trên background
 local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, -10, 1, -30)
-label.Position = UDim2.new(0, 5, 0, 25)
+label.Size = UDim2.new(1, 0, 0, 200)
+label.Position = UDim2.new(0, 0, 0.4, 0)
 label.BackgroundTransparency = 1
 label.TextColor3 = Color3.fromRGB(0, 255, 0)
 label.Font = Enum.Font.SourceSansBold
-label.TextSize = 20
+label.TextSize = 26
+label.TextStrokeTransparency = 0
 label.TextYAlignment = Enum.TextYAlignment.Top
-label.TextXAlignment = Enum.TextXAlignment.Left
+label.TextXAlignment = Enum.TextXAlignment.Center
 label.RichText = false
 label.Text = "HuneIPA - Fruit Finder\nLoading..."
-label.Parent = container
+label.Parent = screenGui
 
--- Button bật/tắt UI
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 100, 0, 25)
-toggleButton.Position = UDim2.new(0.5, -50, 0, 0)
-toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-toggleButton.TextColor3 = Color3.fromRGB(0, 0, 0)
-toggleButton.Text = "Toggle UI"
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 18
-toggleButton.Parent = container
+local function updateHoppingDots()
+    while true do
+        if hopping then
+            if hoppingDots == "" then hoppingDots = "." elseif hoppingDots == "." then hoppingDots = ".." elseif hoppingDots == ".." then hoppingDots = "..." else hoppingDots = "" end
+        else
+            hoppingDots = ""
+        end
+        task.wait(0.5)
+    end
+end
 
-toggleButton.MouseButton1Click:Connect(function()
-    container.Visible = not container.Visible
-end)
+spawn(updateHoppingDots)
 
--- Cập nhật UI
 local function updateUI(status, fruitShortName, distance)
     local text = "HuneIPA Hub - Fruit Finder\n"
-    text = text .. "Player in server: " .. tostring(#Players:GetPlayers()) .. "/12\n"
+    local count = #Players:GetPlayers()
+    text = text .. "Player in server: " .. tostring(count) .. "/12\n"
     if status == "Collecting" and fruitShortName then
-        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. tostring(math.floor(distance)) .. "m)\n"
+        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. math.floor(distance) .. "m)\n"
     elseif status == "Storing" then
         text = text .. "Status: Storing\n"
     elseif status == "Hopping" then
@@ -145,25 +128,6 @@ local function updateUI(status, fruitShortName, distance)
     text = text .. "JobID: " .. tostring(game.JobId) .. "\n"
     text = text .. "Total fruit: {" .. tostring(totalFruit) .. "}\n"
     label.Text = text
-end
--- ========== End UI ==========
-
-local function updateHoppingDotsLoop()
-    while true do
-        if hopping then
-            if hoppingDots == "" then hoppingDots = "." elseif hoppingDots == "." then hoppingDots = ".." elseif hoppingDots == ".." then hoppingDots = "..." else hoppingDots = "" end
-        else
-            hoppingDots = ""
-        end
-        task.wait(0.5)
-    end
-end
-spawn(updateHoppingDotsLoop)
-
-local function notify(title, text, duration)
-    safePcall(function()
-        StarterGui:SetCore("SendNotification", {Title = title or "HuneIPA - Fruit Finder", Text = text or "", Duration = duration or 4})
-    end)
 end
 
 local function isPlayerDescendant(obj)
@@ -220,7 +184,7 @@ local function findAllFruits()
         local ok, sname = isFruitModel(obj)
         if ok then
             table.insert(results, {Model = obj, ServerName = sname})
-            if DEBUG then warn("[FruitFinder] Candidate:", obj:GetFullName(), sname) end
+            if DEBUG then warn("[FruitFinder] Found:", obj:GetFullName(), sname) end
         end
     end
     return results
@@ -255,7 +219,7 @@ local function createTweenToCFrame(hrp, targetCFrame, speed)
     local ttime = dist / (speed or TWEENSPEED)
     if ttime <= 0 then ttime = 0.01 end
     local info = TweenInfo.new(ttime, Enum.EasingStyle.Linear)
-    local ok, tween = pcall(function() return TweenService:Create(hrp, info, {CFrame = CFrame.new(pos + Vector3.new(0,3,0)}) end)
+    local ok, tween = pcall(function() return TweenService:Create(hrp, info, {CFrame = CFrame.new(pos + Vector3.new(0,3,0))}) end)
     if ok then return tween end
     return nil
 end
@@ -411,7 +375,7 @@ local function hopOldServerLogic()
     hopping = true
     updateUI("Hopping")
     local cursor = nil
-    for page = 1, 10 do
+    for page = 1, 8 do
         local data = apiListServers(cursor)
         if data and data.data then
             for _, s in ipairs(data.data) do
@@ -452,7 +416,7 @@ local function hopLowPlayersLogic()
     local cursor = nil
     local bestServer = nil
     local bestPlayers = math.huge
-    for page = 1, 10 do
+    for page = 1, 8 do
         local data = apiListServers(cursor)
         if data and data.data then
             for _, s in ipairs(data.data) do
@@ -506,14 +470,14 @@ end
 local function autoJoinTeamImmediate()
     if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
         local ok, res = pcall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
-        task.wait(0.15)
+        task.wait(5)
         if not ok then
             notify("HuneIPA - Fruit Finder", "Join team failed", 4)
         end
     end
 end
 
-local function applyFpsBoost()
+local function applyFpsBoostFull()
     if not FPSBOOST then return end
     safePcall(function() SoundService.Volume = 0 end)
     safePcall(function()
@@ -562,21 +526,17 @@ local function applyFpsBoost()
     end
 end
 
-local function prepareStartup()
-    updateUI("Idle")
-    notify("HuneIPA - Fruit Finder", "Load successfully", 4)
-end
-
-prepareStartup()
 autoJoinTeamImmediate()
-applyFpsBoost()
+applyFpsBoostFull()
+notify("HuneIPA - Fruit Finder", "Load successfully", 4)
+
 task.wait(5)
 
 local function mainLoop()
     while true do
         local pl = getPlayer()
         if not pl or not pl.Character or not pl.Character:FindFirstChild("HumanoidRootPart") then
-            task.wait(0.5)
+            task.wait(1)
         end
         local fruits = findAllFruits()
         if fruits and #fruits > 0 then
@@ -629,8 +589,8 @@ local function mainLoop()
             HopServer()
             break
         end
-        task.wait(0.3)
+        task.wait(0.2)
     end
 end
 
-spawn(mainLoop)
+safePcall(function() mainLoop() end)
