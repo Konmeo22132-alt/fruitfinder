@@ -1,5 +1,3 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Konmeo22132-alt/dead_rails/refs/heads/main/autorejoin.lua"))()
-
 local Config = getgenv().Config or {}
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
