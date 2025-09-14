@@ -74,12 +74,14 @@ end
 
 local FruitLookup = buildLookupFromConfig()
 
+-- ========== UI ==========
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "HuneIPA_FruitFinder_UI_v1"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = CoreGui
 
+-- Container Frame với viền xanh lá
 local container = Instance.new("Frame")
 container.Name = "FruitFinderUI"
 container.Size = UDim2.new(0, 400, 0, 200)
@@ -89,6 +91,7 @@ container.BorderSizePixel = 2
 container.BorderColor3 = Color3.fromRGB(0, 255, 0)
 container.Parent = screenGui
 
+-- Background bên trong, mờ 25%
 local bg = Instance.new("Frame")
 bg.Size = UDim2.new(1, -4, 1, -4)
 bg.Position = UDim2.new(0, 2, 0, 2)
@@ -97,6 +100,7 @@ bg.BackgroundTransparency = 0.25
 bg.BorderSizePixel = 0
 bg.Parent = container
 
+-- Label text trên background
 local label = Instance.new("TextLabel")
 label.Size = UDim2.new(1, -10, 1, -30)
 label.Position = UDim2.new(0, 5, 0, 25)
@@ -110,6 +114,7 @@ label.RichText = false
 label.Text = "HuneIPA - Fruit Finder\nLoading..."
 label.Parent = container
 
+-- Button bật/tắt UI
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 100, 0, 25)
 toggleButton.Position = UDim2.new(0.5, -50, 0, 0)
@@ -124,8 +129,9 @@ toggleButton.MouseButton1Click:Connect(function()
     container.Visible = not container.Visible
 end)
 
+-- Cập nhật UI
 local function updateUI(status, fruitShortName, distance)
-    local text = "HuneIPA | Fruit Finder\n"
+    local text = "HuneIPA Hub - Fruit Finder\n"
     text = text .. "Player in server: " .. tostring(#Players:GetPlayers()) .. "/12\n"
     if status == "Collecting" and fruitShortName then
         text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. tostring(math.floor(distance)) .. "m)\n"
@@ -140,6 +146,7 @@ local function updateUI(status, fruitShortName, distance)
     text = text .. "Total fruit: {" .. tostring(totalFruit) .. "}\n"
     label.Text = text
 end
+-- ========== End UI ==========
 
 local function updateHoppingDotsLoop()
     while true do
