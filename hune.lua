@@ -37,19 +37,6 @@ local function getPlayer()
     return Players.LocalPlayer
 end
 
-local function waitForCharacter(timeout)
-    local pl = getPlayer()
-    local startTime = tick()
-    local limit = timeout or 12
-    while tick() - startTime < limit do
-        if pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
-            return true
-        end
-        task.wait(0.1)
-    end
-    return false
-end
-
 local function notify(title, text, duration)
     safePcall(function()
         StarterGui:SetCore("SendNotification", {Title = title or "Fruit Finder", Text = text or "", Duration = duration or 4})
@@ -107,7 +94,7 @@ label.Font = Enum.Font.SourceSansBold
 label.TextSize = 26
 label.TextStrokeTransparency = 0
 label.TextYAlignment = Enum.TextYAlignment.Top
-label.TextXAlignment = Enum.TextXAlignment.Left
+label.TextXAlignment = Enum.TextXAlignment.Center
 label.RichText = false
 label.Text = "HuneIPA - Fruit Finder\nLoading..."
 label.Parent = screenGui
@@ -359,7 +346,11 @@ local function safeRespawnCharacter()
     safePcall(function()
         if pl.LoadCharacter then
             pl:LoadCharacter()
-            waitForCharacter(10)
+            local t0 = tick()
+            while tick() - t0 < 10 do
+                if pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then break end
+                task.wait(0.1)
+            end
             return
         else
             if pl.Character and pl.Character:FindFirstChild("Humanoid") then
@@ -393,8 +384,13 @@ local function hopOldServerLogic()
                 local id = s.id
                 local uptime = s.uptime or 0
                 if id and tostring(id) ~= tostring(game.JobId) and playing < maxp and playing < 6 and uptime > 7200 then
-                    safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, getPlayer()) end)
-                    return
+                    local ok = safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, getPlayer()) end)
+                    if not ok then
+                        notify("HuneIPA - Fruit Finder", "Hop server failed, retry in 1 second", 3)
+                        task.wait(1)
+                    else
+                        return
+                    end
                 end
             end
             cursor = data.nextPageCursor
@@ -404,7 +400,11 @@ local function hopOldServerLogic()
             break
         end
     end
-    safePcall(function() TeleportService:Teleport(game.PlaceId, getPlayer()) end)
+    local ok = safePcall(function() TeleportService:Teleport(game.PlaceId, getPlayer()) end)
+    if not ok then
+        notify("HuneIPA - Fruit Finder", "Hop server failed, retry in 1 second", 3)
+        task.wait(1)
+    end
 end
 
 local function hopLowPlayersLogic()
@@ -428,8 +428,11 @@ local function hopLowPlayersLogic()
                         bestPlayers = playing
                         bestServer = id
                     end
-                    if playing == 0 then
-                        safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, getPlayer()) end)
+                    local ok = safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, getPlayer()) end)
+                    if not ok then
+                        notify("HuneIPA - Fruit Finder", "Hop server failed, retry in 1 second", 3)
+                        task.wait(1)
+                    else
                         return
                     end
                 end
@@ -442,10 +445,18 @@ local function hopLowPlayersLogic()
         end
     end
     if bestServer then
-        safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, bestServer, getPlayer()) end)
+        local ok = safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, bestServer, getPlayer()) end)
+        if not ok then
+            notify("HuneIPA - Fruit Finder", "Hop server failed, retry in 1 second", 3)
+            task.wait(1)
+        end
         return
     end
-    safePcall(function() TeleportService:Teleport(game.PlaceId, getPlayer()) end)
+    local ok = safePcall(function() TeleportService:Teleport(game.PlaceId, getPlayer()) end)
+    if not ok then
+        notify("HuneIPA - Fruit Finder", "Hop server failed, retry in 1 second", 3)
+        task.wait(1)
+    end
 end
 
 local function HopServer()
@@ -456,12 +467,14 @@ local function HopServer()
     end
 end
 
-local function autoJoinTeamWrapper()
-    safePcall(function()
-        if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
-            safePcall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
+local function autoJoinTeamImmediate()
+    if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+        local ok, res = pcall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
+        task.wait(5)
+        if not ok then
+            notify("HuneIPA - Fruit Finder", "Join team failed", 4)
         end
-    end)
+    end
 end
 
 local function applyFpsBoostFull()
@@ -513,15 +526,9 @@ local function applyFpsBoostFull()
     end
 end
 
-local function prepareStartup()
-    updateUI("Idle")
-    notify("HuneIPA - Fruit Finder", "Load successfully", 4)
-    waitForCharacter(12)
-end
-
-prepareStartup()
-autoJoinTeamWrapper()
+autoJoinTeamImmediate()
 applyFpsBoostFull()
+notify("HuneIPA - Fruit Finder", "Load successfully", 4)
 
 task.wait(5)
 
@@ -529,7 +536,6 @@ local function mainLoop()
     while true do
         local pl = getPlayer()
         if not pl or not pl.Character or not pl.Character:FindFirstChild("HumanoidRootPart") then
-            waitForCharacter(12)
             task.wait(1)
         end
         local fruits = findAllFruits()
@@ -546,10 +552,11 @@ local function mainLoop()
                 tweenToModel(model, serverName)
                 notify("HuneIPA - Fruit Finder", "Collecting " .. tostring(serverName), 3)
                 local collecting = true
-                local uiUpdater = spawn(function()
+                spawn(function()
                     while collecting do
-                        if pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") and model and model:FindFirstChild("Handle") then
-                            local nowDist = (pl.Character.HumanoidRootPart.Position - model.Handle.Position).Magnitude
+                        local pl2 = getPlayer()
+                        if pl2 and pl2.Character and pl2.Character:FindFirstChild("HumanoidRootPart") and model and model:FindFirstChild("Handle") then
+                            local nowDist = (pl2.Character.HumanoidRootPart.Position - model.Handle.Position).Magnitude
                             updateUI("Collecting", serverName, nowDist)
                         end
                         task.wait(0.1)
