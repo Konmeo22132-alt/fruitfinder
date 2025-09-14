@@ -74,25 +74,79 @@ end
 
 local FruitLookup = buildLookupFromConfig()
 
+-- ========== UI ==========
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "HuneIPA_FruitFinder_UI_v1"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = CoreGui
 
+-- Container Frame với viền xanh lá
+local container = Instance.new("Frame")
+container.Name = "FruitFinderUI"
+container.Size = UDim2.new(0, 400, 0, 200)
+container.Position = UDim2.new(0.5, -200, 0.4, 0)
+container.BackgroundTransparency = 1
+container.BorderSizePixel = 2
+container.BorderColor3 = Color3.fromRGB(0, 255, 0)
+container.Parent = screenGui
+
+-- Background bên trong, mờ 25%
+local bg = Instance.new("Frame")
+bg.Size = UDim2.new(1, -4, 1, -4)
+bg.Position = UDim2.new(0, 2, 0, 2)
+bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+bg.BackgroundTransparency = 0.25
+bg.BorderSizePixel = 0
+bg.Parent = container
+
+-- Label text trên background
 local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, 0, 0, 180)
-label.Position = UDim2.new(0, 0, 0.4, 0)
+label.Size = UDim2.new(1, -10, 1, -30)
+label.Position = UDim2.new(0, 5, 0, 25)
 label.BackgroundTransparency = 1
 label.TextColor3 = Color3.fromRGB(0, 255, 0)
 label.Font = Enum.Font.SourceSansBold
-label.TextSize = 26
-label.TextStrokeTransparency = 0
+label.TextSize = 20
 label.TextYAlignment = Enum.TextYAlignment.Top
-label.TextXAlignment = Enum.TextXAlignment.Center
+label.TextXAlignment = Enum.TextXAlignment.Left
 label.RichText = false
 label.Text = "HuneIPA - Fruit Finder\nLoading..."
-label.Parent = screenGui
+label.Parent = container
+
+-- Button bật/tắt UI
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 100, 0, 25)
+toggleButton.Position = UDim2.new(0.5, -50, 0, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+toggleButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+toggleButton.Text = "Toggle UI"
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 18
+toggleButton.Parent = container
+
+toggleButton.MouseButton1Click:Connect(function()
+    container.Visible = not container.Visible
+end)
+
+-- Cập nhật UI
+local function updateUI(status, fruitShortName, distance)
+    local text = "HuneIPA Hub - Fruit Finder\n"
+    text = text .. "Player in server: " .. tostring(#Players:GetPlayers()) .. "/12\n"
+    if status == "Collecting" and fruitShortName then
+        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. tostring(math.floor(distance)) .. "m)\n"
+    elseif status == "Storing" then
+        text = text .. "Status: Storing\n"
+    elseif status == "Hopping" then
+        text = text .. "Status: Hopping" .. hoppingDots .. "\n"
+    else
+        text = text .. "Status: Idle\n"
+    end
+    text = text .. "JobID: " .. tostring(game.JobId) .. "\n"
+    text = text .. "Total fruit: {" .. tostring(totalFruit) .. "}\n"
+    label.Text = text
+end
+-- ========== End UI ==========
 
 local function updateHoppingDotsLoop()
     while true do
@@ -110,23 +164,6 @@ local function notify(title, text, duration)
     safePcall(function()
         StarterGui:SetCore("SendNotification", {Title = title or "HuneIPA - Fruit Finder", Text = text or "", Duration = duration or 4})
     end)
-end
-
-local function updateUI(status, fruitShortName, distance)
-    local text = "HuneIPA Hub - Fruit Finder\n"
-    text = text .. "Player in server: " .. tostring(#Players:GetPlayers()) .. "/12\n"
-    if status == "Collecting" and fruitShortName then
-        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. tostring(math.floor(distance)) .. "m)\n"
-    elseif status == "Storing" then
-        text = text .. "Status: Storing\n"
-    elseif status == "Hopping" then
-        text = text .. "Status: Hopping" .. hoppingDots .. "\n"
-    else
-        text = text .. "Status: Idle\n"
-    end
-    text = text .. "JobID: " .. tostring(game.JobId) .. "\n"
-    text = text .. "Total fruit: {" .. tostring(totalFruit) .. "}\n"
-    label.Text = text
 end
 
 local function isPlayerDescendant(obj)
@@ -218,7 +255,7 @@ local function createTweenToCFrame(hrp, targetCFrame, speed)
     local ttime = dist / (speed or TWEENSPEED)
     if ttime <= 0 then ttime = 0.01 end
     local info = TweenInfo.new(ttime, Enum.EasingStyle.Linear)
-    local ok, tween = pcall(function() return TweenService:Create(hrp, info, {CFrame = CFrame.new(pos + Vector3.new(0,3,0))}) end)
+    local ok, tween = pcall(function() return TweenService:Create(hrp, info, {CFrame = CFrame.new(pos + Vector3.new(0,3,0)}) end)
     if ok then return tween end
     return nil
 end
@@ -592,8 +629,8 @@ local function mainLoop()
             HopServer()
             break
         end
-        task.wait(0.2)
+        task.wait(0.3)
     end
 end
 
-safePcall(function() mainLoop() end)
+spawn(mainLoop)
