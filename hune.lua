@@ -6,16 +6,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 local TweenService = game:GetService("TweenService")
 local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
+local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local TEAM = Config.Team or "Pirates"
 local FPSBOOST = Config.FPSBOOST or false
 local OLD_SERVER = (Config.OldServer == nil) and false or Config.OldServer
-local HOPDELAY = tonumber(Config.HopDelay) or 0.1
+local HOPDELAY = (Config.HopDelay == nil) and 0.1 or tonumber(Config.HopDelay)
 local FRUITS = Config.Fruits or {}
-local TWEENSPEED = tonumber(Config.TweenSpeed) or 350
+local TWEENSPEED = (Config.TweenSpeed == nil) and 350 or tonumber(Config.TweenSpeed)
 local USE_RESPAWN = (Config.UseRespawn == nil) and true or Config.UseRespawn
 local DEBUG = Config.Debug or false
 
@@ -38,9 +39,9 @@ end
 
 local function waitForCharacter(timeout)
     local pl = getPlayer()
-    local t0 = tick()
+    local startTime = tick()
     local limit = timeout or 12
-    while tick() - t0 < limit do
+    while tick() - startTime < limit do
         if pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
             return true
         end
@@ -49,105 +50,56 @@ local function waitForCharacter(timeout)
     return false
 end
 
-local function autoJoinTeam()
-    local pl = getPlayer()
-    if not pl then return end
-    if not ReplicatedStorage then return end
-    if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
-        safePcall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
-    end
-end
-
-local function applyFpsBoost()
-    if not FPSBOOST then return end
-    safePcall(function() game:GetService("SoundService").Volume = 0 end)
-    safePcall(function()
-        if settings and settings().Rendering then
-            settings().Rendering.QualityLevel = Enum.QualityLevel.Level02
-        end
-    end)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        safePcall(function()
-            if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
-                obj.Enabled = false
-            end
-        end)
-    end
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        safePcall(function()
-            if obj:IsA("Decal") or obj:IsA("Texture") then
-                if obj.Transparency ~= nil then
-                    obj.Transparency = 1
-                end
-            end
-        end)
-    end
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        safePcall(function()
-            if obj:IsA("MeshPart") then
-                obj.Material = Enum.Material.SmoothPlastic
-                if obj.TextureID ~= nil then
-                    pcall(function() obj.TextureID = "" end)
-                end
-                obj.Reflectance = 0
-            elseif obj:IsA("BasePart") then
-                obj.Material = Enum.Material.SmoothPlastic
-                obj.Reflectance = 0
-            end
-        end)
-    end
-end
-
 local function notify(title, text, duration)
     safePcall(function()
         StarterGui:SetCore("SendNotification", {Title = title or "Fruit Finder", Text = text or "", Duration = duration or 4})
     end)
 end
 
-local function normalizeServerName(s)
+local function normalizeString(s)
     if type(s) ~= "string" then return tostring(s) end
-    local low = string.lower(s)
-    return low
+    return string.lower(s)
 end
 
-local function parsePrefix(serverName)
-    if type(serverName) ~= "string" then return tostring(serverName) end
-    local parts = string.split(serverName, "-")
-    return parts[1] or serverName
+local function parsePrefix(name)
+    if type(name) ~= "string" then return tostring(name) end
+    local parts = string.split(name, "-")
+    return parts[1] or name
 end
 
-local function buildFruitLookup()
+local function buildLookupFromConfig()
     local lookup = {}
-    for _, v in ipairs(FRUITS) do
-        if type(v) == "string" then
-            local serverName = v
+    for _, entry in ipairs(FRUITS) do
+        if type(entry) == "string" then
+            local serverName = entry
             local pref = parsePrefix(serverName)
-            lookup[string.lower(pref)] = serverName
-            lookup[string.lower(serverName)] = serverName
-        elseif type(v) == "table" then
-            local display = v[1] or v[2] or v[3]
-            local serverName = v[2] or v[1] or v[3]
+            lookup[normalizeString(pref)] = serverName
+            lookup[normalizeString(serverName)] = serverName
+        elseif type(entry) == "table" then
+            local display = entry[1]
+            local serverName = entry[2] or entry[1] or entry[3]
             if serverName then
                 local pref = parsePrefix(serverName)
-                lookup[string.lower(pref)] = serverName
-                if display then lookup[string.lower(display)] = serverName end
+                lookup[normalizeString(pref)] = serverName
+                if display then
+                    lookup[normalizeString(display)] = serverName
+                end
             end
         end
     end
     return lookup
 end
 
-local FruitLookup = buildFruitLookup()
+local FruitLookup = buildLookupFromConfig()
 
-local CoreGui = game:GetService("CoreGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "FruitFinderUI"
-screenGui.IgnoreGuiInset = true
 screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
 screenGui.Parent = CoreGui
 
 local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, 0, 0, 180)
+label.Size = UDim2.new(1, 0, 0, 200)
 label.Position = UDim2.new(0, 0, 0.4, 0)
 label.BackgroundTransparency = 1
 label.TextColor3 = Color3.fromRGB(0, 255, 0)
@@ -160,12 +112,25 @@ label.RichText = false
 label.Text = "HuneIPA - Fruit Finder\nLoading..."
 label.Parent = screenGui
 
-local function updateUI(status, fruitShort, distance)
+local function updateHoppingDots()
+    while true do
+        if hopping then
+            if hoppingDots == "" then hoppingDots = "." elseif hoppingDots == "." then hoppingDots = ".." elseif hoppingDots == ".." then hoppingDots = "..." else hoppingDots = "" end
+        else
+            hoppingDots = ""
+        end
+        task.wait(0.5)
+    end
+end
+
+spawn(updateHoppingDots)
+
+local function updateUI(status, fruitShortName, distance)
     local text = "HuneIPA Hub - Fruit Finder\n"
-    local playersInServer = #Players:GetPlayers()
-    text = text .. "Player in server: " .. tostring(playersInServer) .. "/12\n"
-    if status == "Collecting" and fruitShort then
-        text = text .. "Status: Collecting " .. tostring(fruitShort) .. " (" .. math.floor(distance) .. "m)\n"
+    local count = #Players:GetPlayers()
+    text = text .. "Player in server: " .. tostring(count) .. "/12\n"
+    if status == "Collecting" and fruitShortName then
+        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. math.floor(distance) .. "m)\n"
     elseif status == "Storing" then
         text = text .. "Status: Storing\n"
     elseif status == "Hopping" then
@@ -177,16 +142,6 @@ local function updateUI(status, fruitShort, distance)
     text = text .. "Total fruit: {" .. tostring(totalFruit) .. "}\n"
     label.Text = text
 end
-
-spawn(function()
-    while task.wait(0.5) do
-        if hopping then
-            if hoppingDots == "" then hoppingDots = "." elseif hoppingDots == "." then hoppingDots = ".." elseif hoppingDots == ".." then hoppingDots = "..." else hoppingDots = "" end
-        else
-            hoppingDots = ""
-        end
-    end
-end)
 
 local function isPlayerDescendant(obj)
     if not obj then return false end
@@ -200,7 +155,7 @@ local function isPlayerDescendant(obj)
     return false
 end
 
-local function gatherCandidateFruitModels()
+local function gatherCandidates()
     local list = {}
     for _, child in ipairs(workspace:GetChildren()) do
         if child and (child:IsA("Model") or child:IsA("Tool")) then
@@ -213,12 +168,12 @@ local function gatherCandidateFruitModels()
     return list
 end
 
-local function isMatchFromConfig(name)
-    if not name then return false end
-    local lname = string.lower(name)
+local function matchConfigName(name)
+    if not name then return false, nil end
+    local lname = normalizeString(name)
     for k, v in pairs(FruitLookup) do
         if k and lname:find(k, 1, true) then
-            return true, FruitLookup[k]
+            return true, v
         end
     end
     return false, nil
@@ -226,9 +181,9 @@ end
 
 local function isFruitModel(obj)
     if not obj or not obj.Name then return false, nil end
-    local ok, serverName = isMatchFromConfig(obj.Name)
+    local ok, serverName = matchConfigName(obj.Name)
     if ok then return true, serverName end
-    local lname = string.lower(obj.Name)
+    local lname = normalizeString(obj.Name)
     if lname:find("fruit", 1, true) then
         return true, obj.Name
     end
@@ -237,18 +192,18 @@ end
 
 local function findAllFruits()
     local results = {}
-    local candidates = gatherCandidateFruitModels()
-    for _, obj in ipairs(candidates) do
+    local cand = gatherCandidates()
+    for _, obj in ipairs(cand) do
         local ok, sname = isFruitModel(obj)
         if ok then
             table.insert(results, {Model = obj, ServerName = sname})
-            if DEBUG then warn("[FruitFinder] Candidate:", obj:GetFullName(), sname) end
+            if DEBUG then warn("[FruitFinder] Found:", obj:GetFullName(), sname) end
         end
     end
     return results
 end
 
-local function getNearestFruit(fruits)
+local function getNearest(fruits)
     if not fruits or #fruits == 0 then return nil end
     local pl = getPlayer()
     if not pl or not pl.Character or not pl.Character:FindFirstChild("HumanoidRootPart") then
@@ -270,7 +225,7 @@ local function getNearestFruit(fruits)
     return best
 end
 
-local function createTween(hrp, targetCFrame, speed)
+local function createTweenToCFrame(hrp, targetCFrame, speed)
     if not hrp or not targetCFrame then return nil end
     local pos = targetCFrame.Position
     local dist = (hrp.Position - pos).Magnitude
@@ -278,41 +233,49 @@ local function createTween(hrp, targetCFrame, speed)
     if ttime <= 0 then ttime = 0.01 end
     local info = TweenInfo.new(ttime, Enum.EasingStyle.Linear)
     local ok, tween = pcall(function() return TweenService:Create(hrp, info, {CFrame = CFrame.new(pos + Vector3.new(0,3,0))}) end)
-    if ok then
-        return tween
-    end
+    if ok then return tween end
     return nil
 end
 
-local function tweenToHandle(model)
+local function playTweenAndTrack(hrp, targetCFrame, speed, nameForUI)
+    if not hrp or not targetCFrame then return end
+    local tween = createTweenToCFrame(hrp, targetCFrame, speed)
+    if tween then
+        safePcall(function() tween:Play() end)
+        while tween.PlaybackState == Enum.PlaybackState.Playing do
+            local pos = targetCFrame.Position
+            local distNow = (hrp.Position - pos).Magnitude
+            updateUI("Collecting", nameForUI or "Fruit", distNow)
+            task.wait(0.1)
+        end
+    else
+        safePcall(function() hrp.CFrame = targetCFrame + Vector3.new(0,3,0) end)
+    end
+end
+
+local function tweenToModel(model, nameForUI)
     local pl = getPlayer()
     if not pl or not pl.Character then return end
     local hrp = pl.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     if not model or not model:FindFirstChild("Handle") then return end
-    local targetCFrame = model.Handle.CFrame
-    local tween = createTween(hrp, targetCFrame, TWEENSPEED)
-    if tween then
-        safePcall(function() tween:Play() end)
-    else
-        safePcall(function() hrp.CFrame = targetCFrame + Vector3.new(0,3,0) end)
-    end
-    return tween
+    local targetCF = model.Handle.CFrame
+    playTweenAndTrack(hrp, targetCF, TWEENSPEED, nameForUI)
 end
 
-local function storeFruitByServerName(serverName)
+local function storeByServerName(serverName)
     local pl = getPlayer()
     if not pl then return end
     local backpack = pl:FindFirstChild("Backpack")
     local char = pl.Character
     if not backpack and not char then return end
-    local prefix = parsePrefix(serverName or "")
-    if not prefix then return end
-    local candidates = { prefix .. " Fruit", prefix }
-    for _, cname in ipairs(candidates) do
-        local obj = backpack and backpack:FindFirstChild(cname)
+    local pref = parsePrefix(serverName or "")
+    if not pref then return end
+    local names = { pref .. " Fruit", pref }
+    for _, nm in ipairs(names) do
+        local obj = backpack and backpack:FindFirstChild(nm)
         if obj then
-            pcall(function()
+            safePcall(function()
                 if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
                     ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", serverName, obj)
                 end
@@ -320,10 +283,10 @@ local function storeFruitByServerName(serverName)
             return
         end
     end
-    for _, cname in ipairs(candidates) do
-        local obj = char and char:FindFirstChild(cname)
+    for _, nm in ipairs(names) do
+        local obj = char and char:FindFirstChild(nm)
         if obj then
-            pcall(function()
+            safePcall(function()
                 if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
                     ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", serverName, obj)
                 end
@@ -333,15 +296,15 @@ local function storeFruitByServerName(serverName)
     end
 end
 
-local function storeAnyFruit()
+local function storeAny()
     local pl = getPlayer()
     if not pl then return end
     local backpack = pl:FindFirstChild("Backpack")
     local char = pl.Character
     if backpack then
         for _, obj in ipairs(backpack:GetChildren()) do
-            if type(obj.Name) == "string" and string.lower(obj.Name):find("fruit") then
-                pcall(function()
+            if type(obj.Name) == "string" and normalizeString(obj.Name):find("fruit") then
+                safePcall(function()
                     if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
                         ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", obj.Name, obj)
                     end
@@ -351,8 +314,8 @@ local function storeAnyFruit()
     end
     if char then
         for _, obj in ipairs(char:GetChildren()) do
-            if type(obj.Name) == "string" and string.lower(obj.Name):find("fruit") then
-                pcall(function()
+            if type(obj.Name) == "string" and normalizeString(obj.Name):find("fruit") then
+                safePcall(function()
                     if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
                         ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", obj.Name, obj)
                     end
@@ -362,13 +325,13 @@ local function storeAnyFruit()
     end
 end
 
-local function storeAllFruitsFromConfig()
-    for _, serverName in ipairs(ServerList or FRUITS) do
-        storeFruitByServerName(serverName)
+local function storeAllFromConfig()
+    for _, sname in ipairs(FRUITS) do
+        storeByServerName(sname)
     end
 end
 
-local function startFlyUp()
+local function startFlyUpLoop()
     if flying then return end
     flying = true
     spawn(function()
@@ -376,31 +339,31 @@ local function startFlyUp()
             local pl = getPlayer()
             if pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") then
                 local hrp = pl.Character.HumanoidRootPart
-                pcall(function() hrp.CFrame = hrp.CFrame + Vector3.new(0, 10, 0) end)
+                safePcall(function() hrp.CFrame = hrp.CFrame + Vector3.new(0, 10, 0) end)
             end
             task.wait(0.5)
         end
     end)
 end
 
-local function stopFlyUp()
+local function stopFlyUpLoop()
     flying = false
 end
 
-local function safeRespawn()
+local function safeRespawnCharacter()
     if not USE_RESPAWN then return end
     if tick() - lastRespawn < 4 then return end
     lastRespawn = tick()
     local pl = getPlayer()
     if not pl then return end
-    pcall(function()
+    safePcall(function()
         if pl.LoadCharacter then
             pl:LoadCharacter()
-            local ok = waitForCharacter(10)
-            return ok
+            waitForCharacter(10)
+            return
         else
             if pl.Character and pl.Character:FindFirstChild("Humanoid") then
-                pcall(function() pl.Character:BreakJoints() end)
+                safePcall(function() pl.Character:BreakJoints() end)
             end
         end
     end)
@@ -417,11 +380,11 @@ local function apiListServers(cursor)
     return nil
 end
 
-local function hopPreferOldServer()
+local function hopOldServerLogic()
     hopping = true
     updateUI("Hopping")
     local cursor = nil
-    for page = 1, 6 do
+    for page = 1, 8 do
         local data = apiListServers(cursor)
         if data and data.data then
             for _, s in ipairs(data.data) do
@@ -430,7 +393,7 @@ local function hopPreferOldServer()
                 local id = s.id
                 local uptime = s.uptime or 0
                 if id and tostring(id) ~= tostring(game.JobId) and playing < maxp and playing < 6 and uptime > 7200 then
-                    pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, Player) end)
+                    safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, getPlayer()) end)
                     return
                 end
             end
@@ -441,16 +404,19 @@ local function hopPreferOldServer()
             break
         end
     end
-    pcall(function() TeleportService:Teleport(game.PlaceId, Player) end)
+    safePcall(function() TeleportService:Teleport(game.PlaceId, getPlayer()) end)
 end
 
-local function hopPreferLowPlayers()
+local function hopLowPlayersLogic()
     hopping = true
     updateUI("Hopping")
+    if HOPDELAY and tonumber(HOPDELAY) and tonumber(HOPDELAY) > 0 then
+        task.wait(tonumber(HOPDELAY))
+    end
     local cursor = nil
     local bestServer = nil
     local bestPlayers = math.huge
-    for page = 1, 6 do
+    for page = 1, 8 do
         local data = apiListServers(cursor)
         if data and data.data then
             for _, s in ipairs(data.data) do
@@ -463,7 +429,7 @@ local function hopPreferLowPlayers()
                         bestServer = id
                     end
                     if playing == 0 then
-                        pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, Player) end)
+                        safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, id, getPlayer()) end)
                         return
                     end
                 end
@@ -476,20 +442,74 @@ local function hopPreferLowPlayers()
         end
     end
     if bestServer then
-        pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, bestServer, Player) end)
+        safePcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, bestServer, getPlayer()) end)
         return
     end
-    pcall(function() TeleportService:Teleport(game.PlaceId, Player) end)
+    safePcall(function() TeleportService:Teleport(game.PlaceId, getPlayer()) end)
 end
 
 local function HopServer()
     if OLD_SERVER then
-        hopPreferOldServer()
+        hopOldServerLogic()
     else
-        if HOPDELAY and tonumber(HOPDELAY) then
-            if tonumber(HOPDELAY) > 0 then task.wait(tonumber(HOPDELAY)) end
+        hopLowPlayersLogic()
+    end
+end
+
+local function autoJoinTeamWrapper()
+    safePcall(function()
+        if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+            safePcall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
         end
-        hopPreferLowPlayers()
+    end)
+end
+
+local function applyFpsBoostFull()
+    if not FPSBOOST then return end
+    safePcall(function() SoundService.Volume = 0 end)
+    safePcall(function()
+        if settings and settings().Rendering then
+            settings().Rendering.QualityLevel = Enum.QualityLevel.Level02
+        end
+    end)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isPlayerDescendant(obj) then
+        else
+            safePcall(function()
+                if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                    obj.Enabled = false
+                end
+            end)
+        end
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isPlayerDescendant(obj) then
+        else
+            safePcall(function()
+                if obj:IsA("Decal") or obj:IsA("Texture") then
+                    if obj.Transparency ~= nil then
+                        obj.Transparency = 1
+                    end
+                end
+            end)
+        end
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isPlayerDescendant(obj) then
+        else
+            safePcall(function()
+                if obj:IsA("MeshPart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    if obj.TextureID ~= nil then
+                        pcall(function() obj.TextureID = "" end)
+                    end
+                    obj.Reflectance = 0
+                elseif obj:IsA("BasePart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Reflectance = 0
+                end
+            end)
+        end
     end
 end
 
@@ -500,57 +520,55 @@ local function prepareStartup()
 end
 
 prepareStartup()
-autoJoinTeam()
-applyFpsBoost()
+autoJoinTeamWrapper()
+applyFpsBoostFull()
 
 task.wait(5)
 
 local function mainLoop()
     while true do
-        if not Player or not Player.Character or not Player.Character:FindFirstChild("HumanoidRootPart") then
+        local pl = getPlayer()
+        if not pl or not pl.Character or not pl.Character:FindFirstChild("HumanoidRootPart") then
             waitForCharacter(12)
             task.wait(1)
         end
-        local found = findAllFruits()
-        if found and #found > 0 then
-            local nearestEntry = getNearestFruit(found)
-            if nearestEntry and nearestEntry.Model and nearestEntry.Model:FindFirstChild("Handle") then
-                local fruitModel = nearestEntry.Model
-                local serverName = nearestEntry.ServerName or nearestEntry.Model.Name
-                local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+        local fruits = findAllFruits()
+        if fruits and #fruits > 0 then
+            local nearest = getNearest(fruits)
+            if nearest and nearest.Model and nearest.Model:FindFirstChild("Handle") then
+                local model = nearest.Model
+                local serverName = nearest.ServerName or model.Name
+                local hrp = pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    local distNow = (hrp.Position - fruitModel.Handle.Position).Magnitude
+                    local distNow = (hrp.Position - model.Handle.Position).Magnitude
                     updateUI("Collecting", serverName, distNow)
                 end
-                local tween = tweenToHandle(fruitModel)
+                tweenToModel(model, serverName)
                 notify("HuneIPA - Fruit Finder", "Collecting " .. tostring(serverName), 3)
                 local collecting = true
-                local uiThread = spawn(function()
+                local uiUpdater = spawn(function()
                     while collecting do
-                        if Player and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") and fruitModel and fruitModel:FindFirstChild("Handle") then
-                            local nowDist = (Player.Character.HumanoidRootPart.Position - fruitModel.Handle.Position).Magnitude
+                        if pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") and model and model:FindFirstChild("Handle") then
+                            local nowDist = (pl.Character.HumanoidRootPart.Position - model.Handle.Position).Magnitude
                             updateUI("Collecting", serverName, nowDist)
                         end
                         task.wait(0.1)
                     end
                 end)
-                spawn(function()
-                    task.wait(2)
-                    startFlyUp()
-                end)
+                spawn(function() task.wait(2); startFlyUpLoop() end)
                 local startTick = tick()
                 while tick() - startTick < 5 do
-                    storeAllFruitsFromConfig()
-                    storeAnyFruit()
+                    storeAllFromConfig()
+                    storeAny()
                     task.wait(0.5)
                 end
                 collecting = false
-                stopFlyUp()
+                stopFlyUpLoop()
                 totalFruit = totalFruit + 1
                 notify("HuneIPA - Fruit Finder", "Find {" .. tostring(totalFruit) .. "} fruit on this server", 4)
                 local remaining = findAllFruits()
                 if remaining and #remaining > 1 then
-                    safeRespawn()
+                    safeRespawnCharacter()
                     task.wait(2)
                 else
                     HopServer()
@@ -568,7 +586,4 @@ local function mainLoop()
     end
 end
 
-local ok, err = pcall(mainLoop)
-if not ok then
-    warn("FruitFinder main loop error:", err)
-localal
+safePcall(function() mainLoop() end)
