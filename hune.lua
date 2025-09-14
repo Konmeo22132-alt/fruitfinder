@@ -127,7 +127,7 @@ toggleButton.MouseButton1Click:Connect(function()
 end)
 
 local function updateUI(status, fruitShortName, distance)
-    local text = "HuneIPA Hub - Fruit Finder\n"
+    local text = "HuneIPA | Fruit Finder\n"
     text = text .. "Player in server: " .. tostring(#Players:GetPlayers()) .. "/12\n"
     if status == "Collecting" and fruitShortName then
         text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. tostring(math.floor(distance)) .. "m)\n"
