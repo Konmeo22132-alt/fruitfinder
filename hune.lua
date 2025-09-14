@@ -10,6 +10,7 @@ local CoreGui = game:GetService("CoreGui")
 local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local TEAM = Config.Team or "Pirates"
 local FPSBOOST = Config.FPSBOOST or false
@@ -35,12 +36,6 @@ end
 
 local function getPlayer()
     return Players.LocalPlayer
-end
-
-local function notify(title, text, duration)
-    safePcall(function()
-        StarterGui:SetCore("SendNotification", {Title = title or "Fruit Finder", Text = text or "", Duration = duration or 4})
-    end)
 end
 
 local function normalizeString(s)
@@ -80,13 +75,13 @@ end
 local FruitLookup = buildLookupFromConfig()
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "FruitFinderUI"
+screenGui.Name = "HuneIPA_FruitFinder_UI_v1"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = CoreGui
 
 local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, 0, 0, 200)
+label.Size = UDim2.new(1, 0, 0, 180)
 label.Position = UDim2.new(0, 0, 0.4, 0)
 label.BackgroundTransparency = 1
 label.TextColor3 = Color3.fromRGB(0, 255, 0)
@@ -99,7 +94,7 @@ label.RichText = false
 label.Text = "HuneIPA - Fruit Finder\nLoading..."
 label.Parent = screenGui
 
-local function updateHoppingDots()
+local function updateHoppingDotsLoop()
     while true do
         if hopping then
             if hoppingDots == "" then hoppingDots = "." elseif hoppingDots == "." then hoppingDots = ".." elseif hoppingDots == ".." then hoppingDots = "..." else hoppingDots = "" end
@@ -109,15 +104,19 @@ local function updateHoppingDots()
         task.wait(0.5)
     end
 end
+spawn(updateHoppingDotsLoop)
 
-spawn(updateHoppingDots)
+local function notify(title, text, duration)
+    safePcall(function()
+        StarterGui:SetCore("SendNotification", {Title = title or "HuneIPA - Fruit Finder", Text = text or "", Duration = duration or 4})
+    end)
+end
 
 local function updateUI(status, fruitShortName, distance)
     local text = "HuneIPA Hub - Fruit Finder\n"
-    local count = #Players:GetPlayers()
-    text = text .. "Player in server: " .. tostring(count) .. "/12\n"
+    text = text .. "Player in server: " .. tostring(#Players:GetPlayers()) .. "/12\n"
     if status == "Collecting" and fruitShortName then
-        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. math.floor(distance) .. "m)\n"
+        text = text .. "Status: Collecting " .. tostring(fruitShortName) .. " (" .. tostring(math.floor(distance)) .. "m)\n"
     elseif status == "Storing" then
         text = text .. "Status: Storing\n"
     elseif status == "Hopping" then
@@ -184,7 +183,7 @@ local function findAllFruits()
         local ok, sname = isFruitModel(obj)
         if ok then
             table.insert(results, {Model = obj, ServerName = sname})
-            if DEBUG then warn("[FruitFinder] Found:", obj:GetFullName(), sname) end
+            if DEBUG then warn("[FruitFinder] Candidate:", obj:GetFullName(), sname) end
         end
     end
     return results
@@ -375,7 +374,7 @@ local function hopOldServerLogic()
     hopping = true
     updateUI("Hopping")
     local cursor = nil
-    for page = 1, 8 do
+    for page = 1, 10 do
         local data = apiListServers(cursor)
         if data and data.data then
             for _, s in ipairs(data.data) do
@@ -416,7 +415,7 @@ local function hopLowPlayersLogic()
     local cursor = nil
     local bestServer = nil
     local bestPlayers = math.huge
-    for page = 1, 8 do
+    for page = 1, 10 do
         local data = apiListServers(cursor)
         if data and data.data then
             for _, s in ipairs(data.data) do
@@ -470,14 +469,14 @@ end
 local function autoJoinTeamImmediate()
     if (TEAM == "Pirates" or TEAM == "Marines") and ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
         local ok, res = pcall(function() ReplicatedStorage.Remotes.CommF_:InvokeServer("SetTeam", TEAM) end)
-        task.wait(5)
+        task.wait(0.15)
         if not ok then
             notify("HuneIPA - Fruit Finder", "Join team failed", 4)
         end
     end
 end
 
-local function applyFpsBoostFull()
+local function applyFpsBoost()
     if not FPSBOOST then return end
     safePcall(function() SoundService.Volume = 0 end)
     safePcall(function()
@@ -526,17 +525,21 @@ local function applyFpsBoostFull()
     end
 end
 
-autoJoinTeamImmediate()
-applyFpsBoostFull()
-notify("HuneIPA - Fruit Finder", "Load successfully", 4)
+local function prepareStartup()
+    updateUI("Idle")
+    notify("HuneIPA - Fruit Finder", "Load successfully", 4)
+end
 
+prepareStartup()
+autoJoinTeamImmediate()
+applyFpsBoost()
 task.wait(5)
 
 local function mainLoop()
     while true do
         local pl = getPlayer()
         if not pl or not pl.Character or not pl.Character:FindFirstChild("HumanoidRootPart") then
-            task.wait(1)
+            task.wait(0.5)
         end
         local fruits = findAllFruits()
         if fruits and #fruits > 0 then
