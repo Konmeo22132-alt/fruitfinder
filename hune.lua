@@ -1,4 +1,3 @@
-
 local Config = getgenv().Config or {}
 local Players = game:GetService("Players")
 local Player = Players.LocalPlayer
@@ -250,45 +249,73 @@ local function tweenToModel(model, nameForUI)
     playTweenAndTrack(hrp, targetCF, TWEENSPEED, nameForUI)
 end
 
--- STORE FRUIT MỚI
-local function storeFruitLoop()
-    spawn(function()
-        while true do
-            local pl = getPlayer()
-            if pl then
-                local backpack = pl:FindFirstChild("Backpack")
-                local char = pl.Character
-                local function tryStore(obj)
-                    if obj and obj:IsA("Tool") and normalizeString(obj.Name):find("fruit") then
-                        local fruitName = obj.Name:gsub("%s*Fruit","")
-                        fruitName = fruitName:gsub(" ", "-")
-                        if fruitName:find("Dragon%-East") then fruitName = "Dragon-East" end
-                        if fruitName:find("Dragon%-West") then fruitName = "Dragon-West" end
-                        safePcall(function()
-                            if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
-                                ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", fruitName, obj)
-                            end
-                        end)
-                    end
+local function storeByServerName(serverName)
+    local pl = getPlayer()
+    if not pl then return end
+    local backpack = pl:FindFirstChild("Backpack")
+    local char = pl.Character
+    if not backpack and not char then return end
+    local pref = parsePrefix(serverName or "")
+    if not pref then return end
+    local names = { pref .. " Fruit", pref }
+    for _, nm in ipairs(names) do
+        local obj = backpack and backpack:FindFirstChild(nm)
+        if obj then
+            safePcall(function()
+                if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+                    ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", serverName, obj)
                 end
-                if backpack then
-                    for _, obj in ipairs(backpack:GetChildren()) do
-                        tryStore(obj)
-                    end
-                end
-                if char then
-                    for _, obj in ipairs(char:GetChildren()) do
-                        tryStore(obj)
-                    end
-                end
-            end
-            task.wait(0.1)
+            end)
+            return
         end
-    end)
+    end
+    for _, nm in ipairs(names) do
+        local obj = char and char:FindFirstChild(nm)
+        if obj then
+            safePcall(function()
+                if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+                    ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", serverName, obj)
+                end
+            end)
+            return
+        end
+    end
 end
 
-storeFruitLoop()
--- HẾT STORE FRUIT MỚI
+local function storeAny()
+    local pl = getPlayer()
+    if not pl then return end
+    local backpack = pl:FindFirstChild("Backpack")
+    local char = pl.Character
+    if backpack then
+        for _, obj in ipairs(backpack:GetChildren()) do
+            if type(obj.Name) == "string" and normalizeString(obj.Name):find("fruit") then
+                safePcall(function()
+                    if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+                        ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", obj.Name, obj)
+                    end
+                end)
+            end
+        end
+    end
+    if char then
+        for _, obj in ipairs(char:GetChildren()) do
+            if type(obj.Name) == "string" and normalizeString(obj.Name):find("fruit") then
+                safePcall(function()
+                    if ReplicatedStorage and ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_") then
+                        ReplicatedStorage.Remotes.CommF_:InvokeServer("StoreFruit", obj.Name, obj)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function storeAllFromConfig()
+    for _, sname in ipairs(FRUITS) do
+        storeByServerName(sname)
+    end
+end
 
 local function startFlyUpLoop()
     if flying then return end
@@ -466,4 +493,107 @@ local function applyFpsBoost()
                 end
             end)
         end
-  enend
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isPlayerDescendant(obj) then
+        else
+            safePcall(function()
+                if obj:IsA("Decal") or obj:IsA("Texture") then
+                    if obj.Transparency ~= nil then
+                        obj.Transparency = 1
+                    end
+                end
+            end)
+        end
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isPlayerDescendant(obj) then
+        else
+            safePcall(function()
+                if obj:IsA("MeshPart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    if obj.TextureID ~= nil then
+                        pcall(function() obj.TextureID = "" end)
+                    end
+                    obj.Reflectance = 0
+                elseif obj:IsA("BasePart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Reflectance = 0
+                end
+            end)
+        end
+    end
+end
+
+local function prepareStartup()
+    updateUI("Idle")
+    notify("HuneIPA - Fruit Finder", "Load successfully", 4)
+end
+
+prepareStartup()
+autoJoinTeamImmediate()
+applyFpsBoost()
+task.wait(5)
+
+local function mainLoop()
+    while true do
+        local pl = getPlayer()
+        if not pl or not pl.Character or not pl.Character:FindFirstChild("HumanoidRootPart") then
+            task.wait(0.5)
+        end
+        local fruits = findAllFruits()
+        if fruits and #fruits > 0 then
+            local nearest = getNearest(fruits)
+            if nearest and nearest.Model and nearest.Model:FindFirstChild("Handle") then
+                local model = nearest.Model
+                local serverName = nearest.ServerName or model.Name
+                local hrp = pl and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local distNow = (hrp.Position - model.Handle.Position).Magnitude
+                    updateUI("Collecting", serverName, distNow)
+                end
+                tweenToModel(model, serverName)
+                notify("HuneIPA - Fruit Finder", "Collecting " .. tostring(serverName), 3)
+                local collecting = true
+                spawn(function()
+                    while collecting do
+                        local pl2 = getPlayer()
+                        if pl2 and pl2.Character and pl2.Character:FindFirstChild("HumanoidRootPart") and model and model:FindFirstChild("Handle") then
+                            local nowDist = (pl2.Character.HumanoidRootPart.Position - model.Handle.Position).Magnitude
+                            updateUI("Collecting", serverName, nowDist)
+                        end
+                        task.wait(0.1)
+                    end
+                end)
+                spawn(function() task.wait(2); startFlyUpLoop() end)
+                local startTick = tick()
+                while tick() - startTick < 5 do
+                    storeAllFromConfig()
+                    storeAny()
+                    task.wait(0.5)
+                end
+                collecting = false
+                stopFlyUpLoop()
+                totalFruit = totalFruit + 1
+                notify("HuneIPA - Fruit Finder", "Find {" .. tostring(totalFruit) .. "} fruit on this server", 4)
+                local remaining = findAllFruits()
+                if remaining and #remaining > 1 then
+                    safeRespawnCharacter()
+                    task.wait(2)
+                else
+                    HopServer()
+                    break
+                end
+            else
+                HopServer()
+                break
+            end
+        else
+            HopServer()
+            break
+        end
+        task.wait(0.2)
+    end
+end
+
+safePcall(function() mainLoop() end)
